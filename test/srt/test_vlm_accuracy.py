@@ -369,7 +369,3 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
         self.assertEqual(mm_item["modality"], "IMAGE")
         self.assertIsInstance(mm_item["precomputed_features"], torch.Tensor)
         self.assertGreater(mm_item["precomputed_features"].numel(), 0)
-
-
-if __name__ == "__main__":
-    unittest.main()
