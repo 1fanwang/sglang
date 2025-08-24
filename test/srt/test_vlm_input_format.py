@@ -216,6 +216,30 @@ class TestKimiVLImageUnderstandsImage(
         )
 
 
+class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTestCase):
+    model_path = "OpenGVLab/InternVL2_5-2B"
+    chat_template = "internvl-2-5"
+
+    @classmethod
+    def _init_visual(cls):
+        model = AutoModel.from_pretrained(
+            cls.model_path, torch_dtype=torch.bfloat16, trust_remote_code=True
+        )
+        cls.vision_model = model.vision_model.eval().to(cls.device)
+        cls.mlp1 = model.mlp1.eval().to(cls.device)
+
+        # This matches InternVL's extract_feature method
+        cls.visual = lambda processor_output: cls.mlp1(
+            cls.vision_model(processor_output["pixel_values"])
+        )
+
+    def _pixel_values_image_data(self, processor_output):
+        return dict(
+            modality="IMAGE",
+            pixel_values=processor_output["pixel_values"],
+        )
+
+
 # not for CI: too large
 # class TestLlama4ImageUnderstandsImage(
 #     VLMInputTestBase, unittest.IsolatedAsyncioTestCase

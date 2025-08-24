@@ -218,6 +218,25 @@ class TestSkipTokenizerInitVLM(TestSkipTokenizerInit):
         )
         cls.eos_token_id = [cls.tokenizer.eos_token_id]
 
+
+class TestSkipTokenizerInitInternVL(TestSkipTokenizerInit):
+    @classmethod
+    def setUpClass(cls):
+        cls.image_url = DEFAULT_IMAGE_URL
+        response = requests.get(cls.image_url)
+        cls.image = Image.open(BytesIO(response.content))
+        cls.model = "OpenGVLab/InternVL2_5-2B"
+        cls.tokenizer = AutoTokenizer.from_pretrained(cls.model, use_fast=False, trust_remote_code=True)
+        cls.processor = AutoProcessor.from_pretrained(cls.model, trust_remote_code=True)
+        cls.base_url = DEFAULT_URL_FOR_TEST
+        cls.process = popen_launch_server(
+            cls.model,
+            cls.base_url,
+            timeout=DEFAULT_TIMEOUT_FOR_SERVER_LAUNCH,
+            other_args=["--skip-tokenizer-init", "--chat-template", "internvl-2-5", "--trust-remote-code"],
+        )
+        cls.eos_token_id = [cls.tokenizer.eos_token_id]
+
     def get_input_ids(self, _prompt_text) -> list[int]:
         chat_template = get_chat_template_by_model_path(self.model)
         text = f"{chat_template.image_token}What is in this picture?"
