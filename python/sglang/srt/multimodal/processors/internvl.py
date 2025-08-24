@@ -1,9 +1,11 @@
 # Adapted from https://huggingface.co/OpenGVLab/InternVL2-4B/blob/main/modeling_intern_vit.py
 
+import re
 import numpy as np
 import torch
 from decord import VideoReader, cpu
 from PIL import Image
+from typing import Dict, List, Union
 
 from sglang.srt.managers.schedule_batch import Modality, MultimodalDataItem
 from sglang.srt.models.interns1 import InternS1ForConditionalGeneration
@@ -43,9 +45,16 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
 
         self.img_start_token_id = tokenizer.convert_tokens_to_ids(self.IMG_START_TOKEN)
         self.img_end_token_id = tokenizer.convert_tokens_to_ids(self.IMG_END_TOKEN)
+        
+        # Add regex pattern for expanded image tokens
+        self.IMAGE_TOKEN_REGEX = re.compile(
+            r"<img>(?:<IMG_CONTEXT>)+</img>"
+        )
+        
         self.mm_tokens = MultimodalSpecialTokens(
             image_token="<IMG_CONTEXT>",
             image_token_id=tokenizer.convert_tokens_to_ids(self.IMG_CONTEXT_TOKEN),
+            image_token_regex=self.IMAGE_TOKEN_REGEX,  # Add regex support
         ).build(_image_processor)
 
     @staticmethod
@@ -181,8 +190,33 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
         pixel_values = torch.cat(pixel_values_list)
         return pixel_values, num_patches_list
 
+    def mm_inputs_are_preprocessed(self, mm_inputs):
+        """Returns true if all images are preprocessed, false if all are not, and error otherwise."""
+        if not mm_inputs:
+            return True
+        ret = any(isinstance(mm_input, dict) for mm_input in mm_inputs)
+        if ret and not all(isinstance(mm_input, dict) for mm_input in mm_inputs):
+            raise ValueError(
+                "Unsupported: mixture of multimodal inputs where some but not all are preprocessed."
+            )
+        return ret
+
+    def _extract_processor_features(self, items, attr_name):
+        """Helper function to concat extracted attributes from processor output."""
+        values = []
+        for item in items:
+            if isinstance(item, dict) and attr_name in item:
+                values.append(item[attr_name])
+            elif hasattr(item, attr_name) and getattr(item, attr_name) is not None:
+                values.append(getattr(item, attr_name))
+        return torch.concat(values) if values else None
+
     async def process_mm_data_async(
-        self, image_data, input_text, request_obj, **kwargs
+        self, 
+        image_data: List[Union[str, bytes, Dict]], 
+        input_text, 
+        request_obj, 
+        **kwargs
     ):
         base_output = self.load_mm_data(
             prompt=input_text,
@@ -191,60 +225,95 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
             discard_alpha_channel=True,
         )
 
-        def process_image_internvl(image, input_size=448, max_num=12):
-            transform = InternVLImageProcessor.build_transform(input_size=input_size)
-            images = InternVLImageProcessor.dynamic_preprocess(
-                image, image_size=input_size, use_thumbnail=True, max_num=max_num
+        # Check if images are preprocessed
+        images_are_preprocessed = self.mm_inputs_are_preprocessed(base_output.images)
+        
+        if images_are_preprocessed:
+            # Handle precomputed features
+            input_ids = self.tokenizer(base_output.input_text, return_tensors="pt")[
+                "input_ids"
+            ].flatten()
+            
+            # Extract precomputed features from preprocessed images
+            pixel_values = self._extract_processor_features(
+                base_output.images, "pixel_values"
             )
-            pixel_values = [transform(image) for image in images]
-            pixel_values = torch.stack(pixel_values)
-            return pixel_values
-
-        num_patches_list = []
-        pixel_values = []
-        # Process each input with allocated frames
-        for image_index, (image) in enumerate(base_output.images):
-            try:
-                # TODO: video input
-                raw_image = process_image_internvl(image)
-                pixel_value = [raw_image.to(torch.bfloat16)]
-                pixel_values += pixel_value
-                num_patches = raw_image.shape[0]
-                num_patches_list += [num_patches]
-
-            except FileNotFoundError as e:
-                print(e)
-                return None
-
-        pixel_values = torch.cat(pixel_values, dim=0)
-
-        original_placeholder = "<<<__IMG_CONTEXT_PLACEHOLDER__>>>"
-        input_text = input_text.replace(self.IMG_CONTEXT_TOKEN, original_placeholder)
-
-        for idx, num_patches in enumerate(num_patches_list):
-            image_tokens = (
-                self.IMG_START_TOKEN
-                + self.IMG_CONTEXT_TOKEN * self.num_image_token * num_patches
-                + self.IMG_END_TOKEN
+            precomputed_features = self._extract_processor_features(
+                base_output.images, "precomputed_features"
             )
-            input_text = input_text.replace(original_placeholder, image_tokens, 1)
-
-        input_text = input_text.replace(original_placeholder, self.IMG_CONTEXT_TOKEN)
-
-        input_ids = self.tokenizer(input_text, return_tensors="pt")[
-            "input_ids"
-        ].flatten()
-        image_offsets = self.get_mm_items_offset(
-            input_ids=input_ids,
-            mm_token_id=self.mm_tokens.image_token_id,
-        )
-        items = [
-            MultimodalDataItem(
-                feature=pixel_values,
-                modality=Modality.IMAGE,
-                offsets=image_offsets,
+            
+            # Use precomputed_features if available, otherwise use pixel_values
+            feature_data = precomputed_features if precomputed_features is not None else pixel_values
+            
+            image_offsets = self.get_mm_items_offset(
+                input_ids=input_ids,
+                mm_token_id=self.mm_tokens.image_token_id,
             )
-        ]
+            
+            items = [
+                MultimodalDataItem(
+                    feature=feature_data,
+                    precomputed_embeddings=precomputed_features,
+                    modality=Modality.IMAGE,
+                    offsets=image_offsets,
+                )
+            ]
+        else:
+            # Original processing logic for regular images
+            def process_image_internvl(image, input_size=448, max_num=12):
+                transform = InternVLImageProcessor.build_transform(input_size=input_size)
+                images = InternVLImageProcessor.dynamic_preprocess(
+                    image, image_size=input_size, use_thumbnail=True, max_num=max_num
+                )
+                pixel_values = [transform(image) for image in images]
+                pixel_values = torch.stack(pixel_values)
+                return pixel_values
+
+            num_patches_list = []
+            pixel_values = []
+            # Process each input with allocated frames
+            for image_index, (image) in enumerate(base_output.images):
+                try:
+                    # TODO: video input
+                    raw_image = process_image_internvl(image)
+                    pixel_value = [raw_image.to(torch.bfloat16)]
+                    pixel_values += pixel_value
+                    num_patches = raw_image.shape[0]
+                    num_patches_list += [num_patches]
+
+                except FileNotFoundError as e:
+                    print(e)
+                    return None
+
+            pixel_values = torch.cat(pixel_values, dim=0)
+
+            original_placeholder = "<<<__IMG_CONTEXT_PLACEHOLDER__>>>"
+            input_text = input_text.replace(self.IMG_CONTEXT_TOKEN, original_placeholder)
+
+            for idx, num_patches in enumerate(num_patches_list):
+                image_tokens = (
+                    self.IMG_START_TOKEN
+                    + self.IMG_CONTEXT_TOKEN * self.num_image_token * num_patches
+                    + self.IMG_END_TOKEN
+                )
+                input_text = input_text.replace(original_placeholder, image_tokens, 1)
+
+            input_text = input_text.replace(original_placeholder, self.IMG_CONTEXT_TOKEN)
+
+            input_ids = self.tokenizer(input_text, return_tensors="pt")[
+                "input_ids"
+            ].flatten()
+            image_offsets = self.get_mm_items_offset(
+                input_ids=input_ids,
+                mm_token_id=self.mm_tokens.image_token_id,
+            )
+            items = [
+                MultimodalDataItem(
+                    feature=pixel_values,
+                    modality=Modality.IMAGE,
+                    offsets=image_offsets,
+                )
+            ]
 
         return {
             "input_ids": input_ids.tolist(),

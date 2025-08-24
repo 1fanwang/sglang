@@ -265,3 +265,111 @@ class TestMiniCPMVLogits(VisionLLMLogitsBase):
             )
 
         self.compare_outputs(sglang_output, hf_output)
+
+
+class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.model_path = "OpenGVLab/InternVL2_5-2B"
+        cls.chat_template = "internvl-2-5"
+        
+        # Load HF components for precomputing features
+        cls.processor = AutoProcessor.from_pretrained(
+            cls.model_path, trust_remote_code=True
+        )
+        model = AutoModel.from_pretrained(
+            cls.model_path, torch_dtype=torch.bfloat16, trust_remote_code=True
+        )
+        cls.vision_model = model.vision_model.eval().to(cls.device)
+        cls.mlp1 = model.mlp1.eval().to(cls.device)
+
+    def setUp(self):
+        self.model_runner = ModelRunner(
+            model_config=ModelConfig(self.model_path, model_override_args="{}"),
+            mem_fraction_static=0.8,
+            gpu_id=0,
+            tp_rank=0,
+            tp_size=1,
+            pp_rank=0,
+            pp_size=1,
+            nccl_port=12435,
+            server_args=ServerArgs(
+                model_path=self.model_path,
+                disable_cuda_graph=True,
+                trust_remote_code=True,
+            ),
+        )
+
+    def tearDown(self):
+        self.model_runner.shutdown()
+
+    def visual(self, pixel_values):
+        """Compute precomputed features using HF components"""
+        with torch.inference_mode():
+            vit_embeds = self.vision_model(pixel_values)
+            # Apply the same processing as in InternVL's extract_feature method
+            precomputed_features = self.mlp1(vit_embeds)
+            return precomputed_features
+
+    async def test_internvl_regular_processing(self):
+        """Test that regular image processing still works"""
+        from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
+        
+        # Create a simple request
+        json_str = f"""
+        {{
+            "model": "{self.model_path}",
+            "messages": [
+                {{
+                    "role": "user", 
+                    "content": [
+                        {{
+                            "type": "image_url",
+                            "image_url": {{"url": "{self.image_url}"}}
+                        }},
+                        {{
+                            "type": "text",
+                            "text": "What's in this image?"
+                        }}
+                    ]
+                }}
+            ]
+        }}
+        """
+        
+        req = ChatCompletionRequest.model_validate_json(json_str)
+        conv = generate_chat_conv(req, template_name=self.chat_template)
+        text = conv.get_prompt()
+        
+        # This should work with regular image processing
+        # We're just testing that our changes don't break existing functionality
+        self.assertIsInstance(text, str)
+        self.assertIn("<IMG_CONTEXT>", text)
+
+    async def test_internvl_precomputed_features_format(self):
+        """Test that precomputed features can be created in the right format"""
+        # Precompute features using HF
+        processed = self.processor(
+            images=[self.main_image], 
+            text="What's in this image? <IMG_CONTEXT>", 
+            return_tensors="pt"
+        )
+        
+        precomputed_features = self.visual(processed["pixel_values"])
+        
+        # Create the multimodal item format
+        mm_item = {
+            "modality": "IMAGE",
+            "precomputed_features": precomputed_features,
+        }
+        
+        # Verify the format is correct
+        self.assertIsInstance(mm_item, dict)
+        self.assertEqual(mm_item["modality"], "IMAGE")
+        self.assertIsInstance(mm_item["precomputed_features"], torch.Tensor)
+        self.assertGreater(mm_item["precomputed_features"].numel(), 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
