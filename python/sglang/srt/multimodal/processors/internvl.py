@@ -310,15 +310,23 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
             # Process each input with allocated frames
             for image_index, (image) in enumerate(base_output.images):
                 try:
+                    # Load image if it's a file path
+                    if isinstance(image, str):
+                        # Load the image using PIL
+                        loaded_image = Image.open(image).convert("RGB")
+                    else:
+                        # Assume it's already a PIL Image
+                        loaded_image = image
+                    
                     # TODO: video input
-                    raw_image = process_image_internvl(image)
+                    raw_image = process_image_internvl(loaded_image)
                     pixel_value = [raw_image.to(torch.bfloat16)]
                     pixel_values += pixel_value
                     num_patches = raw_image.shape[0]
                     num_patches_list += [num_patches]
 
-                except FileNotFoundError as e:
-                    print(e)
+                except (FileNotFoundError, IOError) as e:
+                    print(f"Error loading image: {e}")
                     return None
 
             pixel_values = torch.cat(pixel_values, dim=0)
