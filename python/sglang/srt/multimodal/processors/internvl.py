@@ -11,6 +11,7 @@ from sglang.srt.managers.schedule_batch import Modality, MultimodalDataItem
 from sglang.srt.models.interns1 import InternS1ForConditionalGeneration
 from sglang.srt.models.internvl import InternVLChatModel
 from sglang.srt.multimodal.processors.base_processor import (
+    BaseMultiModalProcessorOutput,
     BaseMultimodalProcessor,
     MultimodalSpecialTokens,
 )
@@ -210,6 +211,41 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
             elif hasattr(item, attr_name) and getattr(item, attr_name) is not None:
                 values.append(getattr(item, attr_name))
         return torch.concat(values) if values else None
+    
+    def load_mm_data(self, prompt, image_data, multimodal_tokens, discard_alpha_channel=True, return_text=True):
+        """Override to fix tokenizer attribute issue for InternVL"""
+        import re
+        from sglang.srt.multimodal.utils import MediaIOFormat
+        
+        multimodal_tokens_pattern = multimodal_tokens.get_combined_regex()
+
+        if isinstance(prompt, list) and return_text:
+            assert len(prompt) and isinstance(prompt[0], int)
+            # Fix: use self.tokenizer instead of self._processor.tokenizer
+            prompt = self.tokenizer.decode(prompt)
+        else:
+            prompt = prompt
+
+        assert isinstance(prompt, str)
+        # split text into list of normal text and special tokens
+        text_parts = re.split(multimodal_tokens_pattern, prompt)
+
+        images, videos = [], []
+        for item in image_data:
+            if isinstance(item, dict):
+                # Handle precomputed features - pass through as-is
+                images.append(item)
+            else:
+                if MediaIOFormat.is_image(item):
+                    images.append(item)
+                else:
+                    videos.append(item)
+
+        return BaseMultiModalProcessorOutput(
+            input_text=prompt,
+            images=images,
+            videos=videos,
+        )
 
     async def process_mm_data_async(
         self, 
