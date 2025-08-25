@@ -342,12 +342,16 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
 
     async def test_internvl_precomputed_features_format(self):
         """Test that precomputed features can be created in the right format"""
-        # For InternVL, we need to manually process the image since processor doesn't return pixel_values
-        import numpy as np
+        # For InternVL, we need to use SGLang's image preprocessing pipeline
+        from python.sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
         
-        # Convert PIL image to tensor manually (InternVL preprocessing)
-        image_array = np.array(self.main_image).astype(np.float32) / 255.0
-        pixel_values = torch.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0).to(self.device)
+        # Apply InternVL's correct preprocessing pipeline (same as SGLang uses)
+        transform = InternVLImageProcessor.build_transform(input_size=448)
+        images = InternVLImageProcessor.dynamic_preprocess(
+            self.main_image, image_size=448, use_thumbnail=True, max_num=12
+        )
+        pixel_values = [transform(img) for img in images]
+        pixel_values = torch.stack(pixel_values).to(self.device)
         
         # Precompute features using HF components
         precomputed_features = self.visual(pixel_values)

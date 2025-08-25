@@ -229,21 +229,21 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
         cls.vision_model = model.vision_model.eval().to(cls.device)
         cls.mlp1 = model.mlp1.eval().to(cls.device)
         
-        # For InternVL, we need to manually process the PIL image
+        # For InternVL, we need to use the correct image preprocessing pipeline
         def visual_func(processor_output):
-            # Since InternVL processor doesn't return pixel_values, 
-            # we need to manually process the image
-            # This is a fallback - normally precomputed features would come from external processing
-            import numpy as np
+            # Use InternVL's actual image preprocessing (like in SGLang)
+            from python.sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
             
             # Use the raw image since processor doesn't give us pixel_values
             image = cls.main_image
             
-            # Simple PIL to tensor conversion (InternVL-compatible)
-            image_array = np.array(image).astype(np.float32) / 255.0
-            
-            # Convert to tensor and add batch dimension: (H, W, C) -> (1, C, H, W)
-            pixel_values = torch.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0).to(cls.device)
+            # Apply InternVL's correct preprocessing pipeline
+            transform = InternVLImageProcessor.build_transform(input_size=448)
+            images = InternVLImageProcessor.dynamic_preprocess(
+                image, image_size=448, use_thumbnail=True, max_num=12
+            )
+            pixel_values = [transform(img) for img in images]
+            pixel_values = torch.stack(pixel_values).to(cls.device)
             
             # Apply InternVL's vision processing
             vit_embeds = cls.vision_model(pixel_values)
@@ -253,14 +253,18 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
 
     def _pixel_values_image_data(self, processor_output):
         # InternVL doesn't provide pixel_values through processor
-        # Instead, we manually process the image
-        import numpy as np
+        # Instead, we use SGLang's InternVL preprocessing pipeline
+        from python.sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
         
         image = self.main_image
-        image_array = np.array(image).astype(np.float32) / 255.0
         
-        # Convert to tensor: (H, W, C) -> (1, C, H, W)
-        pixel_values = torch.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0).to(self.device)
+        # Apply InternVL's correct preprocessing pipeline (same as SGLang uses)
+        transform = InternVLImageProcessor.build_transform(input_size=448)
+        images = InternVLImageProcessor.dynamic_preprocess(
+            image, image_size=448, use_thumbnail=True, max_num=12
+        )
+        pixel_values = [transform(img) for img in images]
+        pixel_values = torch.stack(pixel_values).to(self.device)
         
         return dict(
             modality="IMAGE",
