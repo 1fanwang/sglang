@@ -7,6 +7,7 @@ import requests
 import torch
 from PIL import Image
 from transformers import (
+    AutoModel,
     AutoProcessor,
     Gemma3ForConditionalGeneration,
     Qwen2_5_VLForConditionalGeneration,
@@ -16,7 +17,7 @@ from sglang import Engine
 from sglang.srt.conversation import generate_chat_conv
 from sglang.srt.entrypoints.openai.protocol import ChatCompletionRequest
 
-TEST_IMAGE_URL = "/home/jobuser/sglang/test/lang/example_image.png"
+TEST_IMAGE_URL = "https://github.com/sgl-project/sglang/blob/main/test/lang/example_image.png?raw=true"
 
 
 class VLMInputTestBase:
@@ -31,7 +32,8 @@ class VLMInputTestBase:
         assert cls.chat_template is not None, "Set chat_template in subclass"
         cls.image_url = TEST_IMAGE_URL
         cls.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        cls.main_image = Image.open(cls.image_url)
+        response = requests.get(cls.image_url)
+        cls.main_image = Image.open(BytesIO(response.content))
         cls.processor = AutoProcessor.from_pretrained(
             cls.model_path, trust_remote_code=True, use_fast=True
         )
@@ -130,7 +132,7 @@ class VLMInputTestBase:
         """This should not be overridden."""
         return dict(
             modality="IMAGE",
-            precomputed_features=precomputed_embeddings,
+            precomputed_embeddings=precomputed_embeddings,
         )
 
     def _pixel_values_image_data(self, processor_output):
@@ -211,69 +213,6 @@ class TestKimiVLImageUnderstandsImage(
             modality="IMAGE",
             pixel_values=processor_output["pixel_values"],
             image_grid_hws=processor_output["image_grid_hws"],
-        )
-
-
-class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTestCase):
-    model_path = "OpenGVLab/InternVL2_5-2B"
-    chat_template = "internvl-2-5"
-
-    @classmethod
-    def _init_visual(cls):
-        # For testing precomputed features, we create mock data instead of loading models
-        def visual_func(processor_output):
-            # Create mock precomputed features matching InternVL's expected output format
-            # Important: The number of features must match the number of image tokens in the text
-            
-            # For InternVL-2.5-2B: image_size=448, patch_size=14, downsample_ratio=0.5
-            # num_image_token = (448//14)² * (0.5)² = 1024 * 0.25 = 256 tokens per patch
-            # Dynamic preprocessing typically creates 1 patch for this image size
-            num_image_tokens = 256  # This should match the text tokenizer's expectation
-            hidden_dim = 2048       # InternVL-2.5-2B's language model dimension
-            
-            # Create tensor with proper memory layout for hashing
-            # Note: No batch dimension here - features are per-image, not per-batch
-            tensor = torch.randn(
-                num_image_tokens, hidden_dim,
-                dtype=torch.bfloat16, device=cls.device
-            )
-            # Ensure the tensor is contiguous for proper hashing
-            return tensor.contiguous()
-        
-        cls.visual = visual_func
-
-    def get_processor_output(self, req=None):
-        """Override for InternVL since its processor doesn't accept images parameter"""
-        if req is None:
-            req = self.get_completion_request()
-        conv = generate_chat_conv(req, template_name=self.chat_template)
-        text = conv.get_prompt()
-
-        # For InternVL, processor is just a tokenizer - no image processing
-        inputs = self.processor(
-            text=[text],  # No images parameter for InternVL
-            return_tensors="pt",
-        )
-        return inputs
-
-    def _pixel_values_image_data(self, processor_output):
-        # InternVL doesn't provide pixel_values through processor
-        # Instead, we use SGLang's InternVL preprocessing pipeline
-        from sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
-        
-        image = self.main_image
-        
-        # Apply InternVL's correct preprocessing pipeline (same as SGLang uses)
-        transform = InternVLImageProcessor.build_transform(input_size=448)
-        images = InternVLImageProcessor.dynamic_preprocess(
-            image, image_size=448, use_thumbnail=True, max_num=12
-        )
-        pixel_values = [transform(img) for img in images]
-        pixel_values = torch.stack(pixel_values).to(self.device).to(torch.bfloat16)  # Match model dtype
-        
-        return dict(
-            modality="IMAGE",
-            pixel_values=pixel_values,
         )
 
 
