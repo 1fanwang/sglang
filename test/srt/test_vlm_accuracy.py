@@ -342,8 +342,8 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
 
     async def test_internvl_precomputed_features_format(self):
         """Test that precomputed features can be created in the right format"""
-        # For InternVL, we need to use SGLang's image preprocessing pipeline
-        from python.sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
+        # For InternVL, we need to use SGLang's image preprocessing pipeline  
+        from sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
         
         # Apply InternVL's correct preprocessing pipeline (same as SGLang uses)
         transform = InternVLImageProcessor.build_transform(input_size=448)

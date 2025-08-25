@@ -232,7 +232,7 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
         # For InternVL, we need to use the correct image preprocessing pipeline
         def visual_func(processor_output):
             # Use InternVL's actual image preprocessing (like in SGLang)
-            from python.sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
+            from sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
             
             # Use the raw image since processor doesn't give us pixel_values
             image = cls.main_image
@@ -254,7 +254,7 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
     def _pixel_values_image_data(self, processor_output):
         # InternVL doesn't provide pixel_values through processor
         # Instead, we use SGLang's InternVL preprocessing pipeline
-        from python.sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
+        from sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
         
         image = self.main_image
         
