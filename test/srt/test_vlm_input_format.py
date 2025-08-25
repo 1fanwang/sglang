@@ -243,7 +243,7 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
                 image, image_size=448, use_thumbnail=True, max_num=12
             )
             pixel_values = [transform(img) for img in images]
-            pixel_values = torch.stack(pixel_values).to(cls.device)
+            pixel_values = torch.stack(pixel_values).to(cls.device).to(torch.bfloat16)  # Match model dtype
             
             # Apply InternVL's vision processing
             vit_embeds = cls.vision_model(pixel_values)
@@ -264,7 +264,7 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
             image, image_size=448, use_thumbnail=True, max_num=12
         )
         pixel_values = [transform(img) for img in images]
-        pixel_values = torch.stack(pixel_values).to(self.device)
+        pixel_values = torch.stack(pixel_values).to(self.device).to(torch.bfloat16)  # Match model dtype
         
         return dict(
             modality="IMAGE",

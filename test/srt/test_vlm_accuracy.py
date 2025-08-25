@@ -351,7 +351,7 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
             self.main_image, image_size=448, use_thumbnail=True, max_num=12
         )
         pixel_values = [transform(img) for img in images]
-        pixel_values = torch.stack(pixel_values).to(self.device)
+        pixel_values = torch.stack(pixel_values).to(self.device).to(torch.bfloat16)  # Match model dtype
         
         # Precompute features using HF components
         precomputed_features = self.visual(pixel_values)
