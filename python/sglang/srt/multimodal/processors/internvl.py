@@ -215,7 +215,6 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
     def load_mm_data(self, prompt, image_data, multimodal_tokens, discard_alpha_channel=True, return_text=True):
         """Override to fix tokenizer attribute issue for InternVL"""
         import re
-        from sglang.srt.multimodal.utils import MediaIOFormat
         
         multimodal_tokens_pattern = multimodal_tokens.get_combined_regex()
 
@@ -235,11 +234,12 @@ class InternVLImageProcessor(BaseMultimodalProcessor):
             if isinstance(item, dict):
                 # Handle precomputed features - pass through as-is
                 images.append(item)
+            elif isinstance(item, str) and item.startswith("video:"):
+                # Handle video files
+                videos.append(item)
             else:
-                if MediaIOFormat.is_image(item):
-                    images.append(item)
-                else:
-                    videos.append(item)
+                # Default to treating as image
+                images.append(item)
 
         return BaseMultiModalProcessorOutput(
             input_text=prompt,
