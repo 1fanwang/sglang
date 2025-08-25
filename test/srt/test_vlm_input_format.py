@@ -246,7 +246,9 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
             pixel_values = torch.stack(pixel_values).to(cls.device).to(torch.bfloat16)  # Match model dtype
             
             # Apply InternVL's vision processing
-            vit_embeds = cls.vision_model(pixel_values)
+            vit_outputs = cls.vision_model(pixel_values)
+            # Extract the actual hidden states (tensor) from the model output
+            vit_embeds = vit_outputs.last_hidden_state if hasattr(vit_outputs, 'last_hidden_state') else vit_outputs
             return cls.mlp1(vit_embeds)
         
         cls.visual = visual_func

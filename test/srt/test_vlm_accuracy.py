@@ -300,7 +300,9 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
     def visual(self, pixel_values):
         """Compute precomputed features using HF components"""
         with torch.inference_mode():
-            vit_embeds = self.vision_model(pixel_values)
+            vit_outputs = self.vision_model(pixel_values)
+            # Extract the actual hidden states (tensor) from the model output
+            vit_embeds = vit_outputs.last_hidden_state if hasattr(vit_outputs, 'last_hidden_state') else vit_outputs
             # Apply the same processing as in InternVL's extract_feature method
             precomputed_features = self.mlp1(vit_embeds)
             return precomputed_features
