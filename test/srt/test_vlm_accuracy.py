@@ -274,15 +274,7 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
         cls.model_path = "OpenGVLab/InternVL2_5-2B"
         cls.chat_template = "internvl-2-5"
         
-        # Load HF components for precomputing features
-        cls.processor = AutoProcessor.from_pretrained(
-            cls.model_path, trust_remote_code=True
-        )
-        model = AutoModel.from_pretrained(
-            cls.model_path, torch_dtype=torch.bfloat16, trust_remote_code=True
-        )
-        cls.vision_model = model.vision_model.eval().to(cls.device)
-        cls.mlp1 = model.mlp1.eval().to(cls.device)
+        # We use mock features for testing the interface, so no HF models needed
 
     def setUp(self):
         # Skip ModelRunner initialization to avoid conflicts
@@ -297,36 +289,21 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
             torch.cuda.empty_cache()
         gc.collect()
 
-    def visual(self, pixel_values):
-        """Compute precomputed features using HF components - following SGLang's exact process"""
-        with torch.inference_mode():
-            # Follow SGLang's InternVL extract_feature method exactly
-            vit_outputs = self.vision_model(pixel_values, output_hidden_states=False, return_dict=True)
-            vit_embeds = vit_outputs.last_hidden_state
-            
-            # Remove class token (first token): shape [B, N+1, C] -> [B, N, C]  
-            vit_embeds = vit_embeds[:, 1:, :]
-            
-            # Reshape to spatial grid: [B, N, C] -> [B, H, W, C]
-            h = w = int(vit_embeds.shape[1] ** 0.5)
-            vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], h, w, -1)
-            
-            # Apply pixel shuffle (downsampling) - simplified version
-            # SGLang uses downsample_ratio=0.5, so we subsample by 2x2 -> 4x reduction
-            vit_embeds = vit_embeds[:, ::2, ::2, :].contiguous()  # Subsample to reduce spatial dimensions
-            
-            # Flatten back: [B, H/2, W/2, C] -> [B, H*W/4, C]
-            vit_embeds = vit_embeds.reshape(vit_embeds.shape[0], -1, vit_embeds.shape[-1])
-            
-            # Concatenate channel dimension to match expected MLP input size
-            # SGLang expects [*, 4096] but we have [*, 1024], so we need to expand
-            # This is a simplified approach - in practice you'd follow the exact model config
-            B, N, C = vit_embeds.shape
-            vit_embeds = vit_embeds.reshape(B, -1, C * 4)  # Reshape to match 4096 expected dimension
-            
-            # Apply MLP projection
-            precomputed_features = self.mlp1(vit_embeds)
-            return precomputed_features
+    def create_mock_precomputed_features(self):
+        """Create representative precomputed features for testing the interface"""
+        # In real usage, users compute these features using their own pipelines
+        # We just need to test that SGLang accepts the right format
+        batch_size = 1
+        num_patches = 256  # Typical patches after InternVL processing
+        hidden_dim = 2048  # InternVL-2.5-2B's language model dimension
+        
+        # Create tensor with proper memory layout for hashing
+        tensor = torch.randn(
+            batch_size, num_patches, hidden_dim,
+            dtype=torch.bfloat16, device=self.device
+        )
+        # Ensure the tensor is contiguous for proper hashing
+        return tensor.contiguous()
 
     async def test_internvl_regular_processing(self):
         """Test that regular image processing still works"""
@@ -368,16 +345,8 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
         # Simplified test: just create mock precomputed features in the right format
         # This tests the data structure without needing exact SGLang processing replication
         
-        # Create mock precomputed features tensor (typical dimensions for InternVL)
-        batch_size = 1
-        num_patches = 256  # Typical for 448x448 image
-        feature_dim = 2048  # Typical InternVL feature dimension
-        
-        # Create a mock precomputed features tensor
-        mock_precomputed_features = torch.randn(
-            batch_size, num_patches, feature_dim, 
-            dtype=torch.bfloat16, device=self.device
-        )
+        # Create representative precomputed features for testing
+        mock_precomputed_features = self.create_mock_precomputed_features()
         
         # Create the multimodal item format (this is what users would pass to SGLang)
         mm_item = {
