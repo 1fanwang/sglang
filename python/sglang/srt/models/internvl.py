@@ -509,13 +509,13 @@ class InternVLChatModel(nn.Module):
         Returns:
             image_features (`torch.Tensor`): Image feature tensor of shape `(num_images, image_length, embed_dim)`).
         """
-        # Check if we have precomputed embeddings
-        if any(item.precomputed_embeddings is not None for item in items):
-            if not all(item.precomputed_embeddings is not None for item in items):
+        # Check if we have precomputed features
+        if any(item.precomputed_features is not None for item in items):
+            if not all(item.precomputed_features is not None for item in items):
                 raise NotImplementedError(
                     "MM inputs where only some items are precomputed."
                 )
-            return torch.concat([item.precomputed_embeddings for item in items])
+            return torch.concat([item.precomputed_features for item in items])
         
         # Original logic for pixel values
         pixel_values = torch.cat([item.feature for item in items])
