@@ -293,13 +293,15 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
         """Create representative precomputed features for testing the interface"""
         # In real usage, users compute these features using their own pipelines
         # We just need to test that SGLang accepts the right format
-        batch_size = 1
-        num_patches = 256  # Typical patches after InternVL processing
-        hidden_dim = 2048  # InternVL-2.5-2B's language model dimension
+        
+        # For InternVL-2.5-2B: 256 tokens per patch (confirmed from config)
+        num_image_tokens = 256  # Matches calculated: (448//14)² * (0.5)² = 256
+        hidden_dim = 2048       # InternVL-2.5-2B's language model dimension
         
         # Create tensor with proper memory layout for hashing
+        # Note: No batch dimension - features are per-image, not per-batch
         tensor = torch.randn(
-            batch_size, num_patches, hidden_dim,
+            num_image_tokens, hidden_dim,
             dtype=torch.bfloat16, device=self.device
         )
         # Ensure the tensor is contiguous for proper hashing

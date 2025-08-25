@@ -223,21 +223,38 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
         # For testing precomputed features, we create mock data instead of loading models
         def visual_func(processor_output):
             # Create mock precomputed features matching InternVL's expected output format
-            # InternVL's extract_feature method outputs: [batch_size, num_patches, hidden_dim]
-            # where hidden_dim matches the language model's embedding dimension
-            batch_size = 1
-            num_patches = 256  # Typical number of patches after processing  
-            hidden_dim = 2048   # InternVL-2.5-2B's language model dimension
+            # Important: The number of features must match the number of image tokens in the text
+            
+            # For InternVL-2.5-2B: image_size=448, patch_size=14, downsample_ratio=0.5
+            # num_image_token = (448//14)² * (0.5)² = 1024 * 0.25 = 256 tokens per patch
+            # Dynamic preprocessing typically creates 1 patch for this image size
+            num_image_tokens = 256  # This should match the text tokenizer's expectation
+            hidden_dim = 2048       # InternVL-2.5-2B's language model dimension
             
             # Create tensor with proper memory layout for hashing
+            # Note: No batch dimension here - features are per-image, not per-batch
             tensor = torch.randn(
-                batch_size, num_patches, hidden_dim,
+                num_image_tokens, hidden_dim,
                 dtype=torch.bfloat16, device=cls.device
             )
             # Ensure the tensor is contiguous for proper hashing
             return tensor.contiguous()
         
         cls.visual = visual_func
+
+    def get_processor_output(self, req=None):
+        """Override for InternVL since its processor doesn't accept images parameter"""
+        if req is None:
+            req = self.get_completion_request()
+        conv = generate_chat_conv(req, template_name=self.chat_template)
+        text = conv.get_prompt()
+
+        # For InternVL, processor is just a tokenizer - no image processing
+        inputs = self.processor(
+            text=[text],  # No images parameter for InternVL
+            return_tensors="pt",
+        )
+        return inputs
 
     def _pixel_values_image_data(self, processor_output):
         # InternVL doesn't provide pixel_values through processor
