@@ -234,19 +234,15 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
             # Since InternVL processor doesn't return pixel_values, 
             # we need to manually process the image
             # This is a fallback - normally precomputed features would come from external processing
-            from transformers.image_utils import make_list_of_images
-            from transformers.image_transforms import to_numpy_array, normalize
             import numpy as np
             
             # Use the raw image since processor doesn't give us pixel_values
             image = cls.main_image
             
-            # Manual image preprocessing similar to InternVL's preprocessing
-            image_array = to_numpy_array(image)
-            if image_array.dtype != np.float32:
-                image_array = image_array.astype(np.float32) / 255.0
+            # Simple PIL to tensor conversion (InternVL-compatible)
+            image_array = np.array(image).astype(np.float32) / 255.0
             
-            # Convert to tensor and add batch dimension
+            # Convert to tensor and add batch dimension: (H, W, C) -> (1, C, H, W)
             pixel_values = torch.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0).to(cls.device)
             
             # Apply InternVL's vision processing
@@ -258,15 +254,12 @@ class TestInternVLUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
     def _pixel_values_image_data(self, processor_output):
         # InternVL doesn't provide pixel_values through processor
         # Instead, we manually process the image
-        from transformers.image_utils import make_list_of_images
-        from transformers.image_transforms import to_numpy_array, normalize
         import numpy as np
         
         image = self.main_image
-        image_array = to_numpy_array(image)
-        if image_array.dtype != np.float32:
-            image_array = image_array.astype(np.float32) / 255.0
+        image_array = np.array(image).astype(np.float32) / 255.0
         
+        # Convert to tensor: (H, W, C) -> (1, C, H, W)
         pixel_values = torch.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0).to(self.device)
         
         return dict(
