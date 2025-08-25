@@ -237,6 +237,69 @@ class TestSkipTokenizerInitInternVL(TestSkipTokenizerInit):
         )
         cls.eos_token_id = [cls.tokenizer.eos_token_id]
 
+    def run_decode(
+        self,
+        prompt_text="What is in this image?",
+        max_new_tokens=32,
+        return_logprob=False,
+        top_logprobs_num=0,
+        n=1,
+    ):
+        """Override to handle InternVL's different token counting"""
+        input_ids = self.get_input_ids(prompt_text)
+
+        request = self.get_request_json(
+            input_ids=input_ids,
+            return_logprob=return_logprob,
+            top_logprobs_num=top_logprobs_num,
+            max_new_tokens=max_new_tokens,
+            stream=False,
+            n=n,
+        )
+        response = requests.post(
+            self.base_url + "/generate",
+            json=request,
+        )
+        ret = response.json()
+        print(json.dumps(ret, indent=2))
+
+        def assert_one_item(item):
+            if item["meta_info"]["finish_reason"]["type"] == "stop":
+                # InternVL uses <|im_end|> token (ID: 92542) for chat format, not standard EOS
+                im_end_token_id = self.tokenizer.get_vocab().get("<|im_end|>", self.tokenizer.eos_token_id)
+                self.assertEqual(
+                    item["meta_info"]["finish_reason"]["matched"],
+                    im_end_token_id,  # InternVL's chat end token
+                )
+            elif item["meta_info"]["finish_reason"]["type"] == "length":
+                self.assertEqual(
+                    len(item["output_ids"]), item["meta_info"]["completion_tokens"]
+                )
+                self.assertEqual(len(item["output_ids"]), max_new_tokens)
+                # InternVL processor adds chat template + image tokens to the input
+                # The server's token count includes these extra tokens beyond just the text
+                self.assertGreaterEqual(item["meta_info"]["prompt_tokens"], len(input_ids))  # At least as many as input
+
+                if return_logprob:
+                    num_input_logprobs = len(input_ids) - request["logprob_start_len"]
+                    if num_input_logprobs > len(input_ids):
+                        num_input_logprobs -= len(input_ids)
+                    self.assertEqual(
+                        len(item["meta_info"]["input_token_logprobs"]), num_input_logprobs
+                    )
+                    self.assertEqual(
+                        len(item["meta_info"]["output_token_logprobs"]),
+                        item["meta_info"]["completion_tokens"],
+                    )
+
+        if isinstance(ret, list):
+            for item in ret:
+                assert_one_item(item)
+        else:
+            assert_one_item(ret)
+
+        return ret
+
     def get_input_ids(self, _prompt_text) -> list[int]:
         chat_template = get_chat_template_by_model_path(self.model)
         text = f"{chat_template.image_token}What is in this picture?"

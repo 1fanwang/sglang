@@ -293,6 +293,8 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
             tp_size=1,
             pp_rank=0,
             pp_size=1,
+            moe_ep_rank=0,
+            moe_ep_size=1,
             nccl_port=12435,
             server_args=ServerArgs(
                 model_path=self.model_path,
