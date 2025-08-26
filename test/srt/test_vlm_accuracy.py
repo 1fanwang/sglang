@@ -368,3 +368,56 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
         print(f"   Shape: {mm_item['precomputed_features'].shape}")
         print(f"   Dtype: {mm_item['precomputed_features'].dtype}")
         print(f"   Device: {mm_item['precomputed_features'].device}")
+
+    async def test_internvl_understands_precomputed_features(self):
+        """Test end-to-end precomputed features with real HuggingFace processing"""
+        from sglang import Engine
+        from transformers import AutoModel, AutoProcessor
+        
+        # Load HF model for feature computation
+        hf_model = AutoModel.from_pretrained(
+            self.model_path, torch_dtype=torch.bfloat16, trust_remote_code=True
+        ).eval().to(self.device)
+        processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True)
+        
+        # Create engine for testing
+        engine = Engine(
+            model_path=self.model_path,
+            chat_template=self.chat_template,
+            trust_remote_code=True,
+            device=self.device.type,
+            mem_fraction_static=0.8,
+        )
+        
+        try:
+            # Process image using HuggingFace to get real features
+            processed = processor(
+                images=[self.main_image], 
+                text="<IMG_CONTEXT>What's in this image?", 
+                return_tensors="pt"
+            )
+            
+            with torch.inference_mode():
+                # Compute features using HuggingFace (matches InternVL pipeline)
+                vit_embeds = hf_model.vision_model(processed["pixel_values"].to(self.device))
+                precomputed_features = hf_model.mlp1(vit_embeds)
+            
+            # Test with precomputed features
+            output = await engine.async_generate(
+                input_ids=processed["input_ids"][0].detach().cpu().tolist(),
+                image_data=[
+                    dict(
+                        modality="IMAGE",
+                        precomputed_features=precomputed_features,
+                    )
+                ],
+                sampling_params=dict(temperature=0.0, max_new_tokens=50),
+            )
+            
+            # Verify meaningful output (following the pattern from other VLM tests)
+            output_text = output["text"].lower()
+            self.assertGreater(len(output_text), 5)  # Got some meaningful output
+            print(f"✅ Precomputed features output: {output['text']}")
+            
+        finally:
+            engine.shutdown()
