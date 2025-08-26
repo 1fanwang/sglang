@@ -413,7 +413,9 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
             
             with torch.inference_mode():
                 # Compute features using HuggingFace (matches InternVL pipeline)
-                vit_embeds = hf_model.vision_model(pixel_values)
+                vit_outputs = hf_model.vision_model(pixel_values)
+                # Extract the tensor from BaseModelOutputWithPooling
+                vit_embeds = vit_outputs.last_hidden_state
                 precomputed_features = hf_model.mlp1(vit_embeds)
             
             # Test with precomputed features
