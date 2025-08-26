@@ -390,16 +390,30 @@ class TestInternVLPrecomputedFeatures(VisionLLMLogitsBase):
         )
         
         try:
-            # Process image using HuggingFace to get real features
+            # For InternVL, we need to process image and text separately
+            # since the processor doesn't handle images like other VLMs
+            
+            # Process text only
+            text = "<IMG_CONTEXT>What's in this image?"
             processed = processor(
-                images=[self.main_image], 
-                text="<IMG_CONTEXT>What's in this image?", 
+                text=text, 
                 return_tensors="pt"
             )
             
+            # Process image using InternVL's image processing pipeline
+            from sglang.srt.multimodal.processors.internvl import InternVLImageProcessor
+            
+            # Apply InternVL's preprocessing (same as SGLang uses)
+            transform = InternVLImageProcessor.build_transform(input_size=448)
+            images = InternVLImageProcessor.dynamic_preprocess(
+                self.main_image, image_size=448, use_thumbnail=True, max_num=12
+            )
+            pixel_values = [transform(img) for img in images]
+            pixel_values = torch.stack(pixel_values).to(self.device).to(torch.bfloat16)
+            
             with torch.inference_mode():
                 # Compute features using HuggingFace (matches InternVL pipeline)
-                vit_embeds = hf_model.vision_model(processed["pixel_values"].to(self.device))
+                vit_embeds = hf_model.vision_model(pixel_values)
                 precomputed_features = hf_model.mlp1(vit_embeds)
             
             # Test with precomputed features
