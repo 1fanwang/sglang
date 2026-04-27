@@ -6626,9 +6626,7 @@ class ServerArgs:
             f"Got: {self.pp_max_micro_batch_size}"
         )
 
-        assert (
-            self.prefill_max_requests is None or self.prefill_max_requests >= 1
-        ), (
+        assert self.prefill_max_requests is None or self.prefill_max_requests >= 1, (
             "prefill_max_requests must be a positive integer or None (no limit). "
             f"Got: {self.prefill_max_requests}. A non-positive value silently "
             "deadlocks the scheduler because the per-batch admission cap is "
