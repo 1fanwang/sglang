@@ -43,7 +43,11 @@ from sglang.srt.managers.mm_utils import (
     MultiModalityDataPaddingPatternMultimodalTokens,
     general_mm_embed_routine,
 )
-from sglang.srt.managers.schedule_batch import MultimodalDataItem, MultimodalInputs
+from sglang.srt.managers.schedule_batch import (
+    MultimodalDataItem,
+    MultimodalInputFormat,
+    MultimodalInputs,
+)
 from sglang.srt.model_loader.weight_utils import default_weight_loader
 from sglang.srt.models.mistral import MistralForCausalLMMistralFormat
 from sglang.srt.models.mistral_large_3 import MistralLarge3ForCausalLM
@@ -202,6 +206,9 @@ class PixtralForConditionalGeneration(nn.Module):
         return self.language_model
 
     def get_image_feature(self, items: List[MultimodalDataItem]) -> torch.Tensor:
+        if items and items[0].format == MultimodalInputFormat.PRECOMPUTED_EMBEDDING:
+            return torch.cat([item.feature for item in items])
+
         images = [item.feature for item in items]
         # Process images through vision encoder
         image_features = self.vision_encoder(images)
