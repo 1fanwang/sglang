@@ -799,7 +799,10 @@ class LlavaForConditionalGeneration(LlavaBaseForCausalLM):
             torch.Tensor: features from image inputs, concatenated
         """
         if items and items[0].format == MultimodalInputFormat.PRECOMPUTED_EMBEDDING:
-            return torch.cat([item.feature for item in items])
+            return torch.cat(
+                [item.feature.view(-1, item.feature.shape[-1]) for item in items],
+                dim=0,
+            )
 
         features = []
         for item in items:
