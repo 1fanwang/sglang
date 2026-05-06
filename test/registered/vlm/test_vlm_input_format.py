@@ -719,8 +719,19 @@ class TestPhi4mmUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTestC
     def _init_visual(cls):
         # Phi-4 multimodal ships its vision tower as part of the trust_remote_code
         # AutoModel; pull it out for the precomputed-embedding callable.
-        model = AutoModel.from_pretrained(
-            cls.model_path, trust_remote_code=True, torch_dtype=torch.bfloat16
+        # The custom Phi4MMConfig isn't registered for AutoModel, so use AutoModelForCausalLM.
+        # Phi4MM's modeling code defaults to flash_attention_2 inside
+        # super().__init__(config) before respecting the kwarg, so we set
+        # the flag on the loaded config first.
+        from transformers import AutoConfig, AutoModelForCausalLM
+        config = AutoConfig.from_pretrained(cls.model_path, trust_remote_code=True)
+        config._attn_implementation = "eager"
+        config._attn_implementation_internal = "eager"
+        model = AutoModelForCausalLM.from_pretrained(
+            cls.model_path,
+            config=config,
+            trust_remote_code=True,
+            torch_dtype=torch.bfloat16,
         )
         cls.vision_encoder = model.model.embed_tokens_extend.image_embed.eval().to(
             cls.device
