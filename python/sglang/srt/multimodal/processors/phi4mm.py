@@ -19,6 +19,13 @@ class Phi4MMProcessorAdapter(ProcessorMixin):
     def __init__(self, _processor) -> None:
         self._processor = _processor
 
+    def __getattr__(self, name):
+        # Forward attribute lookups (notably `tokenizer`) to the wrapped HF
+        # processor. Without this, BaseMultimodalProcessor.load_mm_data falls
+        # back to treating the adapter itself as the tokenizer and crashes on
+        # `decode` when prompt is passed as input_ids (the format-tagged path).
+        return getattr(self._processor, name)
+
     def __call__(self, **kwargs):
         result = self._processor(**kwargs)
 
