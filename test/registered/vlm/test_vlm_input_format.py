@@ -710,5 +710,40 @@ class TestMiniCPMVUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTes
         return dict(processor_output, format="processor_output")
 
 
+
+class TestPhi4mmUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTestCase):
+    model_path = "microsoft/Phi-4-multimodal-instruct"
+    chat_template = "phi-4-mm"
+
+    @classmethod
+    def _init_visual(cls):
+        # Phi-4 multimodal ships its vision tower as part of the trust_remote_code
+        # AutoModel; pull it out for the precomputed-embedding callable.
+        model = AutoModel.from_pretrained(
+            cls.model_path, trust_remote_code=True, torch_dtype=torch.bfloat16
+        )
+        cls.vision_encoder = model.model.embed_tokens_extend.image_embed.eval().to(
+            cls.device
+        )
+        del model
+
+        def visual_func(processor_output):
+            pixel_values = processor_output["input_image_embeds"].to(
+                cls.device, dtype=torch.bfloat16
+            )
+            image_sizes = processor_output["image_sizes"].to(cls.device)
+            image_attention_mask = processor_output["image_attention_mask"].to(cls.device)
+            embeds = cls.vision_encoder(
+                pixel_values, image_sizes, image_attention_mask
+            )
+            return torch.cat(embeds)
+
+        cls.visual = visual_func
+
+    def _processor_output_image_data(self, processor_output):
+        return dict(processor_output, format="processor_output")
+
+
+
 if __name__ == "__main__":
     unittest.main()
