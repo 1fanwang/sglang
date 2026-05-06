@@ -719,10 +719,16 @@ class TestPhi4mmUnderstandsImage(VLMInputTestBase, unittest.IsolatedAsyncioTestC
     def _init_visual(cls):
         # Phi-4 multimodal ships its vision tower as part of the trust_remote_code
         # AutoModel; pull it out for the precomputed-embedding callable.
-        # The custom Phi4MMConfig isn't registered for AutoModel, so use AutoModelForCausalLM.
-        # Phi4MM's modeling code defaults to flash_attention_2 inside
-        # super().__init__(config) before respecting the kwarg, so we set
-        # the flag on the loaded config first.
+        # Phi4MM's modeling code wraps its inner Phi4MMModel with peft
+        # (vision LoRA + speech LoRA) at construction time. peft accesses
+        # `prepare_inputs_for_generation` on the wrapped module, which the
+        # bare Phi4MMModel doesn't expose. Stub it so peft's __init__ doesn't
+        # explode; the test only needs the vision encoder, not generation.
+        # Also force eager attention to bypass the flash_attn requirement.
+        from torch import nn
+        if not hasattr(nn.Module, "prepare_inputs_for_generation"):
+            nn.Module.prepare_inputs_for_generation = lambda self, *a, **k: {}
+
         from transformers import AutoConfig, AutoModelForCausalLM
         config = AutoConfig.from_pretrained(cls.model_path, trust_remote_code=True)
         config._attn_implementation = "eager"
