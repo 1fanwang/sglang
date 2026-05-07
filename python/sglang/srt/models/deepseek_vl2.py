@@ -165,7 +165,7 @@ def _init_vision_module(
     try:
         import timm
     except ImportError:
-        raise ImportError("Please install timm") from ImportError
+        raise ImportError("Please install timm") from None
 
     model = timm.create_model(
         "vit_so400m_patch14_siglip_384.webli",
