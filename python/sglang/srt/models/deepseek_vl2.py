@@ -283,6 +283,7 @@ class DeepseekVL2ForCausalLM(nn.Module):
         images_in_this_batch = []
         for item in items:
             assert item.feature.dim() == 4
+            assert item.images_spatial_crop.dim() == 3
             image_feature = vision.forward_features(
                 item.feature.type(target_dtype)
             )
@@ -371,10 +372,6 @@ class DeepseekVL2ForCausalLM(nn.Module):
         return torch.cat(images_in_this_batch, dim=0)
 
     def get_image_feature(self, items: List[MultimodalDataItem]):
-
-        for item in items:
-            assert item.images_spatial_crop.dim() == 3
-
         return self.build_image_features(
             items,
             self.vision,
