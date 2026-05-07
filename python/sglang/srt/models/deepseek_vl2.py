@@ -15,7 +15,11 @@ from sglang.srt.managers.mm_utils import (
     MultiModalityDataPaddingPatternMultimodalTokens,
     general_mm_embed_routine,
 )
-from sglang.srt.managers.schedule_batch import MultimodalDataItem, MultimodalInputs
+from sglang.srt.managers.schedule_batch import (
+    MultimodalDataItem,
+    MultimodalInputFormat,
+    MultimodalInputs,
+)
 from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 from sglang.srt.model_loader.weight_utils import default_weight_loader
 from sglang.srt.models.deepseek import DeepseekForCausalLM
@@ -370,6 +374,11 @@ class DeepseekVL2ForCausalLM(nn.Module):
         return torch.cat(images_in_this_batch, dim=0)
 
     def get_image_feature(self, items: List[MultimodalDataItem]):
+        if items and items[0].format == MultimodalInputFormat.PRECOMPUTED_EMBEDDING:
+            return torch.cat(
+                [item.feature.view(-1, item.feature.shape[-1]) for item in items],
+                dim=0,
+            )
 
         images_spatial_crop = torch.cat(
             [item.images_spatial_crop for item in items], dim=0
