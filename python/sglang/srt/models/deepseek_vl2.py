@@ -279,11 +279,12 @@ class DeepseekVL2ForCausalLM(nn.Module):
         format.
         """
         # TODO: can it be batched ?
+        target_dtype = next(vision.parameters()).dtype
         images_in_this_batch = []
         for item in items:
             assert item.feature.dim() == 4
             image_feature = vision.forward_features(
-                item.feature.type(next(vision.parameters()).dtype)
+                item.feature.type(target_dtype)
             )
             images_embeds = projector(image_feature)
             _, hw, n_dim = images_embeds.shape
