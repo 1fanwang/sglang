@@ -26,6 +26,8 @@ import logging
 import math
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+import torch
+
 from sglang.srt.arg_groups import model_override_base
 from sglang.srt.arg_groups.arg_utils import (
     field_names,
@@ -1021,7 +1023,10 @@ def _deterministic_attention_backend(view: Any) -> dict:
 
     if view.attention_backend is None:
         # User didn't specify attention backend, fallback based on GPU architecture
-        if get_platform().is_sm100 or get_platform().is_sm120:
+        if get_platform().is_cuda and model_config_of(view).dtype == torch.float32:
+            # Same float32 rule as get_default_attn_backend.
+            backend = "triton"
+        elif get_platform().is_sm100 or get_platform().is_sm120:
             # Blackwell and newer architectures
             if _deterministic_is_deepseek_model(view):
                 # fallback to triton for DeepSeek models because flashinfer
@@ -1061,6 +1066,29 @@ def _attention_backend_default(view: Any) -> dict:
             f"Attention backend not specified. Use {backend} backend by default."
         )
         return {"attention_backend": backend}
+    return {}
+
+
+# Their kernels take fp16, bf16 or fp8 inputs only.
+_ATTENTION_BACKENDS_WITHOUT_FLOAT32: frozenset[str] = frozenset(
+    {"flashinfer", "fa3", "fa4", "trtllm_mha"}
+)
+
+
+@register_post_process
+def _float32_attention_backend_check(view: Any) -> dict[str, Any]:
+    """Reject a float32 model on an attention backend without float32 kernels."""
+    if model_config_of(view).dtype != torch.float32:
+        return {}
+    unsupported: list[str] = sorted(
+        set(attention_backends_of(view)) & _ATTENTION_BACKENDS_WITHOUT_FLOAT32
+    )
+    if unsupported:
+        raise ValueError(
+            f"Attention backend {', '.join(unsupported)} does not support "
+            "--dtype float32. Use --attention-backend triton or torch_native, "
+            "or --dtype bfloat16 or float16."
+        )
     return {}
 
 

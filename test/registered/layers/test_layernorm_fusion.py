@@ -42,6 +42,22 @@ class TestRMSNormInputShape(CustomTestCase):
                 )
                 torch.testing.assert_close(actual[1], expected[1], atol=1e-2, rtol=1e-2)
 
+    def test_float32_input(self):
+        # sgl_kernel.rmsnorm has no float32 kernel; --dtype float32 models reach it.
+        if torch.version.hip is not None:
+            self.skipTest("the float32 fallback is in forward_cuda")
+        torch.manual_seed(0)
+        layer = RMSNorm(512).to(device="cuda", dtype=torch.float32)
+        layer.weight.data.normal_(mean=1.0, std=0.1)
+        x = torch.randn(7, 512, device="cuda", dtype=torch.float32)
+
+        with torch.inference_mode():
+            expected = layer.forward_native(x.clone())
+            actual = layer(x.clone())
+
+        self.assertEqual(actual.dtype, torch.float32)
+        torch.testing.assert_close(actual, expected)
+
 
 class TestRMSNormFp8QuantFusion(CustomTestCase):
     DTYPES = [torch.bfloat16, torch.half]

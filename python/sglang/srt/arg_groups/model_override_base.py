@@ -7,6 +7,8 @@ creating a dependency back to ``overrides.py``.
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import torch
+
 from sglang.srt.platforms import current_platform
 from sglang.srt.runtime_context import get_platform
 from sglang.srt.utils.common import is_mps, is_no_spec_infer_or_topk_one
@@ -269,6 +271,8 @@ def get_default_attn_backend(server_args: Any, use_mla_backend: bool, model_conf
     """
     Auto select the fastest attention backend.
 
+    0. Float32 models on CUDA use triton: flashinfer, fa3, fa4 and trtllm_mha
+       have no float32 kernels.
     1. Models with MHA Architecture (e.g: Llama, QWen)
         1.1 We will turn on FA3 on hopper unless user use spec decode with topk > 1 or page_size > 1.
         1.2 Use trtllm_mha for SM100/SM103 (Blackwell B200/GB200/B300) excluding spec with topk > 1.
@@ -289,6 +293,9 @@ def get_default_attn_backend(server_args: Any, use_mla_backend: bool, model_conf
         model_config.hf_config.architectures or []
     ):
         return "flashinfer"
+
+    if get_platform().is_cuda and model_config.dtype == torch.float32:
+        return "triton"
 
     if not use_mla_backend:
         # MHA architecture

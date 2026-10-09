@@ -558,6 +558,9 @@ If the `--attention-backend` argument is not specified, SGLang automatically sel
 - **Blackwell**: Defaults to `flashinfer`; `trtllm_mla` is auto-selected for DeepSeek V3 models specifically.
 - **Other Architectures**: Defaults to `triton`.
 
+**3. Float32 Models (`--dtype float32`)**
+- **CUDA**: Defaults to `triton`. `flashinfer`, `fa3`, `fa4` and `trtllm_mha` have no float32 kernels, so selecting one of them with `--dtype float32` fails at startup.
+
 
 ## User Guide
 

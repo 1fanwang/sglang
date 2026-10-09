@@ -620,6 +620,9 @@ class RMSNorm(BaseFusedOp):
                     residual = residual + post_residual_addition
                 fused_add_rmsnorm(x, residual, self.weight.data, self.variance_epsilon)
                 result = x, residual
+        elif x.dtype == torch.float32:
+            # sgl_kernel.rmsnorm dispatches fp16/bf16 only.
+            result = self.forward_native(x)
         else:
             result = rmsnorm(x, self.weight.data, self.variance_epsilon)
 

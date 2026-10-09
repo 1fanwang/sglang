@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import msgspec
 import msgspec.structs
+import torch
 
 import sglang.srt.server_args as server_args_module
 from sglang.srt.arg_groups import (
@@ -54,6 +55,7 @@ from sglang.srt.arg_groups.moe_hook import (
 from sglang.srt.arg_groups.overrides import (
     max_speculative_num_draft_tokens,
     resolution_result,
+    resolved_view,
 )
 from sglang.srt.arg_groups.parallel_hook import (
     handle_context_parallelism,
@@ -1433,6 +1435,49 @@ class TestFa4PageSizeAutoForce(CustomTestCase):
 
         self.assertEqual(args.page_size, 1)  # the field stays pristine
         self.assertEqual(resolved_view(args).page_size, 128)
+
+
+class TestFloat32AttentionBackend(CustomTestCase):
+    """flashinfer, fa3, fa4 and trtllm_mha have no float32 kernels, so a
+    `--dtype float32` model on the auto-selected backend crashed in CUDA graph
+    capture with `KeyError: torch.float32` instead of serving or failing fast."""
+
+    def _make_args(self, dtype: torch.dtype, **fields: object) -> ServerArgs:
+        args = ServerArgs(model_path="dummy", **fields)
+        args._model_config = MagicMock(dtype=dtype)
+        args._model_config.hf_config.architectures = ["Qwen3ForCausalLM"]
+        return args
+
+    @override_platform(is_cuda=True, is_hip=False, is_hopper_with_cuda_12_3=True)
+    def test_auto_selection_skips_backends_without_float32(self):
+        for dtype, expected in ((torch.float32, "triton"), (torch.bfloat16, "fa3")):
+            with self.subTest(dtype=dtype):
+                args = self._make_args(dtype=dtype)
+                handle_attention_backend_compatibility(args)
+                self.assertEqual(resolved_view(args).attention_backend, expected)
+
+    @override_platform(is_cuda=True, is_hip=False, is_hopper_with_cuda_12_3=True)
+    def test_deterministic_fallback_skips_backends_without_float32(self):
+        for dtype, expected in ((torch.float32, "triton"), (torch.bfloat16, "fa3")):
+            with self.subTest(dtype=dtype):
+                args = self._make_args(dtype=dtype, enable_deterministic_inference=True)
+                handle_deterministic_inference(args)
+                handle_attention_backend_compatibility(args)
+                self.assertEqual(resolved_view(args).attention_backend, expected)
+
+    @override_platform(is_cuda=True, is_hip=False, is_hopper_with_cuda_12_3=True)
+    def test_explicit_backend_without_float32_is_rejected(self):
+        for backends in (
+            {"attention_backend": "flashinfer"},
+            {"prefill_attention_backend": "fa3", "decode_attention_backend": "triton"},
+        ):
+            with (
+                self.subTest(**backends),
+                self.assertRaisesRegex(ValueError, "does not support --dtype float32"),
+            ):
+                handle_attention_backend_compatibility(
+                    self._make_args(dtype=torch.float32, **backends)
+                )
 
 
 class TestContextParallelServerArgs(CustomTestCase):
